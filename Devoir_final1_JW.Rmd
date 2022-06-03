@@ -1,0 +1,277 @@
+---
+title: "Sur la Stationarité et causalité d'une Série temporelle"
+author: "Jean Woodly COQ"
+date: '2022-06-02'
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(include = FALSE)
+```
+
+## Introduction
+
+  Avec les données des agrégats monétaires de la BRH, nous allons réaliser un travail sur RMarkdown. Pour le faire, nous allons choisir trois variables en milliers de dollars US qui sont l'agrégat monétaire M3, le taux de change et les réserves de change nettes de la BRH. Dans un premier temps, nous allons vérifier si elles sont stationnaires en niveau ou en différence première ou deuxième, et en second temps, vérifier leur sens de la causalité au sens de Granger tout en réalisant une régression linéaire tenant compte des résultats des tests de causalité.
+
+  
+```{r, message=F, warning=FALSE, echo=FALSE}
+### Installation des librairies
+
+install.packages("tidyverse") # le package contenant des librairies dont on aura besoin
+install.packages('lmtest')
+library(tidyverse)
+library(readxl) # pour lire le fichier excel
+library(dplyr) # pour le traitement des donnees
+library(tseries) # pour le test de Stationarité
+library(lmtest)
+```
+
+
+```{r, message=F, warning=FALSE, echo=FALSE}
+### Importation des donnees
+
+brh_data<-'https://www.brh.ht/wp-content/uploads/agregatsmon.xls'
+temp <- tempfile()
+download.file(brh_data, temp, mode="wb")
+agregatsmon <-read_excel(path = temp, skip = 2)
+```
+
+```{r, message=F, warning=FALSE, echo=FALSE}
+#### Traitement des donnees
+
+agregatsmon1 <- agregatsmon[1:517,] # eliminer les 10 derniers lignes
+
+agregatsmon2 <- rename(agregatsmon1, Date = ...1) # renommer la colonne date
+
+agregatsmon3 <- agregatsmon2[-1,] # eliminer le premier ligne
+
+agregatsmon3$Date <- as.numeric(agregatsmon3$Date) # conversion de format charactere en numerique
+
+agregatsmon3$Date <- as.Date(agregatsmon3$Date, origin = "1899-12-30") # conversion de format nombre en format date
+
+# Formatter les 17 dates manquantes
+
+agregatsmon3$Date[309] <- "2004-07-01"
+agregatsmon3$Date[310] <- "2004-08-01"
+agregatsmon3$Date[311] <- "2004-09-01"
+agregatsmon3$Date[312] <- "2004-10-01"
+agregatsmon3$Date[313] <- "2004-11-01"
+agregatsmon3$Date[314] <- "2004-12-01"
+agregatsmon3$Date[315] <- "2005-01-01"
+agregatsmon3$Date[316] <- "2005-02-01"
+agregatsmon3$Date[317] <- "2005-03-01"
+agregatsmon3$Date[318] <- "2005-04-01"
+agregatsmon3$Date[319] <- "2005-05-01"
+agregatsmon3$Date[320] <- "2005-06-01"
+agregatsmon3$Date[360] <- "2008-10-01"
+agregatsmon3$Date[361] <- "2008-11-01"
+agregatsmon3$Date[362] <- "2008-12-01"
+agregatsmon3$Date[363] <- "2009-01-01"
+agregatsmon3$Date[364] <- "2009-02-01"
+
+
+### Selectionner les donnees a partir d'Octobre 1990
+
+agregatsmon3 <- agregatsmon3 %>% 
+  filter(Date >= "1990-10-01")
+
+# Eliminer les colonnes inutiles
+
+agregatsmon4 <- agregatsmon3[,-c(5,9,11,15,20,23,25,30,35,40,42,47,56,79,84)]
+
+agregatsmon5 <- agregatsmon4[, c(7,8,36,37)]
+
+
+agregatsmon6 <- agregatsmon5 %>% 
+  rename(M3 = 'M3...8',
+         taux_change = `TAUX DE CHANGE BRH`,
+         reserves_depot = "Réserves nettes de changes BRH avec dépôts des BCMs (millions de  $)",
+         reserves_systeme = "Réserves nettes de change du système banc.(millions de $)")
+
+```
+
+### Le Choix des variables
+
+Les trois variables choisies sont :
+  - M3
+  - Taux de change
+  - Réserves nettes de change de la BRH
+
+```{r, message=F, warning=FALSE, echo=FALSE}
+
+agregatsmon_data <- agregatsmon6 %>% 
+  mutate(M3 = as.numeric(M3),
+         taux_change = as.numeric(taux_change),
+         reserves_depot = as.numeric(reserves_depot),
+         reserves_systeme = as.numeric(reserves_systeme))
+
+
+agregatsmon_data$Date <- agregatsmon4$Date # ajouter la date
+```
+
+### 1. a) Faisons le test de Dickey-Fuller augmanté pour etudier la stationnarité en niveau :
+
+une série temporelle est dite stationnaire en tendance lorsqu' elle converge vers une moyenne c'est-a-dire l'esperance et la variance ne sont pas modifiees dans le temps. Donc, le test de Dickey-Fuller teste l'existance d'une racine unitaire dans le processus generaeur des donnees; il est basé sur l'estimation d'un modele autoregressif.
+
+Comme hyppotheses :
+Sous H0 : la serie est non stionnaire
+     H1 : la serie est stationnaire
+     
+$H_0$ : la série temporelle n'est pas stationnaire car elle a une structure qui dépend du temps et elle n'a pas de variance constante dans le temps.
+
+$H_A$ : la série chronologique est stationnaire.
+
+Pour realisé ce test, nous utilisons la fonction adf.test() du library tseries.
+
+Source: https://www.statology.org/dickey-fuller-test-in-r/
+
+- Pour l'aggregat monetaire M3
+
+```{r, message=F, warning=FALSE, echo=FALSE}
+
+ ggplot(agregatsmon_data, aes(x = Date, y = M3))+
+   geom_line()+
+  labs(title = "Aggregat monetaire M3",
+       subtitle = "Periode: Octobre 1990 - Octobre 2021")
+ 
+adf.test(agregatsmon_data$M3)
+
+```
+
+- Pour le taux de change
+  
+```{r, message=F, warning=FALSE, echo=FALSE}
+ ggplot(agregatsmon_data, aes(x = Date, y = taux_change))+
+   geom_line()+
+   labs(title = " Le taux de change",
+        y = "Taux de change",
+        subtitle = "Periode: Octobre 1990 - Octobre 2021")
+
+adf.test(agregatsmon_data$taux_change)
+ 
+```
+
+- Pour les réserves nettes de changes BRH
+
+```{r, message=F, warning=FALSE, echo=FALSE}
+
+ 
+  ggplot(agregatsmon_data, aes(x = Date, y = reserves_depot))+
+   geom_line()+
+   labs(title = " Les réserves nettes de changes BRH",
+        y = "Reserves nettes avec depots des BCMs",
+        subtitle = "Periode: Octobre 1990 - Octobre 2021")
+  
+adf.test(agregatsmon_data$reserves_depot)
+  
+```
+
+Puisque la p-value est superieure a la marge d'erreur de 5%,on accepte H0, donc la serie est non sationnaire. Cependant, cette serie peut etre stionnaire en difference.
+
+Une serie est stionnaire en difference si elle est obtenue en differenciant les valeurs de la series originale est stationnaire. Dans ce cas, nous faison appel a un autre concepte qui est d'ordre d'intégration en sens que la serie obtenue apres la differenciation est stationnaire.
+
+### 1. b) Pour cela faisons le test de stationnarite en difference :
+
+source: https://bookdown.org/ccolonescu/RPoE4/time-series-nonstationarity.html
+
+```{r, message=F, warning=F, echo=F}
+a <- diff(agregatsmon_data$M3)
+plot(a, ylab = "M3")
+adf.test(a, k=2)
+
+b <- diff(agregatsmon_data$taux_change)
+plot(b, ylab = "taux de change")
+adf.test(b, k=2)
+
+c <- diff(agregatsmon_data$reserves_depot)
+plot(c, ylab = "reserves nettes avec depots BCMs")
+adf.test(c, k=2)
+```
+
+Puisque les p-value sont inferieures a la marge d'erreur 0.05, on rejjete H0, donc la serie est stationnaire en difference premiere.
+
+### 2.1 Voyons maintenant le test de causalite au sens de Granger :
+
+Le test de causalite de Granger est un test d'hypothe statistique pour determiner si une serie chronologique set utile pour en prevoir une autre. Dans ce cas, nous testons la signification globale des coefficient ( test de Fisher ).
+
+Comme hypothes :
+Sous H0 : La série chronologique X ne cause pas la série chronologique Y au sens de Granger
+     H1 : La série chronologique X cause la série chronologique Y au sens de Granger
+     
+Soit X la première série temporelle
+     Y la deuxième série temporelle
+     
+Pour le faire, nous utilisons la fonction grangertest() du package lmtest
+
+grangertest(X, Y, ordre = 1)
+
+Source: https://www.r-bloggers.com/2021/11/granger-causality-test-in-r-with-example/
+
+```{r, message=F, warning=F, echo=F}
+grangertest(M3 ~ taux_change, data = agregatsmon_data, order = 1)
+grangertest(M3 ~ taux_change, data = agregatsmon_data, order = 2)
+
+```
+
+Avec des p-value inferieures a la marge d'erreur 0.05, on rejette H0, donc les valeurs du taux de change sont importantes pour prevoir les valeurs futures de l'aggregat monetaire M3.
+
+
+```{r, message=F, warning=F, echo=F}
+grangertest(reserves_depot ~ taux_change, 
+            data = agregatsmon_data, 
+            order = 1)
+
+
+grangertest(reserves_depot ~ taux_change, 
+            data = agregatsmon_data, 
+            order = 2)
+
+```
+
+Avec des p-value superieures a la marge de d'erreur 0.05, on accepte H0, donc  peut donc les valeurs du taux de change ne sont pas importantes pour prevoir les valeurs futures reserves nettes de la BRH.
+
+# 2.2 Test de causalite de Granger a l'envers
+
+
+```{r, message = F, warning=F, echo=F}
+grangertest(taux_change ~ M3, 
+            data = agregatsmon_data, 
+            order = 1)
+
+grangertest(taux_change ~ M3, 
+            data = agregatsmon_data, 
+            order = 2)
+```
+
+Avec des p-value inferieures a a marge d'erreur 0.05, on rejette H0, donc les valeurs de l'aggregat monetaire M3 sont importantes pour prevoir les valeurs futures du taux de change.
+
+
+```{r, message=F, warning=F, echo=F}
+grangertest(taux_change ~ reserves_depot, 
+            data = agregatsmon_data, 
+            order = 1)
+
+grangertest(taux_change ~ reserves_depot, 
+            data = agregatsmon_data, 
+            order = 2)
+
+```
+
+Ici,la p-value est superieure a 0.05 avec une serie decalee d'ordre premiere, on accepte H0, donc les valeurs des reserves nettes de la BRH ne sont pas importanes pour prevoir les valeurs futures du taux de change. 
+
+Cependant, la p-value est inferieure a 0.05 avec une serie decalee d'ordre deuxieme, On rejette H0, donc les valeurs des reserves nettes de la BRH sont importantes pour prevoir les valeurs futures du taux de change. 
+
+# 3) Voyons la regression lineaire en tenant compte des resultats des tests de causalite
+
+Pour le faire, nous faisons faire la regression lineaire avec les variables M3 et le taux de change. 
+
+```{r, message=F, warning=F, echo=F}
+rl <- lm(taux_change ~ M3, data = agregatsmon_data)
+summary(rl)$coef
+
+```
+
+Alors,le taux de change estimé donne l'equation suivante :
+Taux de change = 6.17 + 0.01 * M3.
+
+   Nous avons consté que le travail realise sur RMarckdown permet de voir la relation qui exite entre les trois variables tirées des agregats monetaires de a BRH. Nous avons d'abord remarqué que la srie etait non stationnaire en niveau, cependant sttionnaire en difference premiere. Ensuite, nous avons remarqué qu'une serie peut etre non importante pour pour prevoir une autre, cependant l'inverse n'est pas forcement vrai. En effet, nous avons realisé une regression lineaire avec les variables M3 et le taux de change en tenant compte des resultas des test de causalité au sens de Granger et le resultat de ce test donne ceete equation : Taux de change = 6.17 + 0.01 * M3, ce qui signifie que le taux de change depend positivement des variables M3: plus on augment M3, plus le taux de change sera elevé.
